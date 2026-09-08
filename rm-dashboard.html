@@ -244,7 +244,7 @@
       <h1>RailMadad Complaint Analysis</h1>
       <div class="subtitle">Train-wise • Complaint type-wise • Month-wise • Time-wise • Overall analysis</div>
     </div>
-    <div class="period-badge" id="periodBadge">Upload Excel file to begin</div>
+    <div class="period-badge" id="periodBadge">Upload Excel file to begin • Date/time source: createdOn</div>
   </div>
 </header>
 
@@ -253,7 +253,7 @@
   <section class="panel upload-panel">
     <strong>Select Excel File:</strong>
     <input type="file" id="excelFile" accept=".xlsx,.xls" />
-    <span class="upload-status" id="uploadStatus">Expected fields include trainStation, compTypeName, subTypeName and createdOn.</span>
+    <span class="upload-status" id="uploadStatus">Date and time source: createdOn • Expected fields include trainStation, compTypeName, subTypeName and createdOn.</span>
   </section>
 
   <section class="panel filters">
@@ -341,19 +341,19 @@
 
     <div class="card chart-card span-7">
       <div class="chart-title">Month-wise Trend</div>
-      <div class="chart-subtitle">Number of complaints received in each month</div>
+      <div class="chart-subtitle">Number of complaints received in each month, based on createdOn</div>
       <div class="chart-box"><canvas id="monthChart"></canvas></div>
     </div>
 
     <div class="card chart-card span-5">
       <div class="chart-title">Time-wise Analysis</div>
-      <div class="chart-subtitle">Complaint count by hour of day</div>
+      <div class="chart-subtitle">Complaint count by hour of day, based on createdOn</div>
       <div class="chart-box"><canvas id="hourChart"></canvas></div>
     </div>
 
     <div class="card chart-card span-5">
       <div class="chart-title">Time Band Summary</div>
-      <div class="chart-subtitle">Complaint distribution across four 6-hour bands</div>
+      <div class="chart-subtitle">Complaint distribution across four 6-hour bands, based on createdOn</div>
       <div class="chart-box"><canvas id="bandChart"></canvas></div>
     </div>
 
@@ -428,7 +428,7 @@
     trainName: ["trainStationName", "trainName", "train_name", "trainDesc", "trainDescription"],
     type: ["compTypeName", "complaintType", "type", "category"],
     subtype: ["subTypeName", "complaintSubType", "subtype", "subCategory"],
-    created: ["createdOn", "createdDate", "complaintDate", "date", "created_at"],
+    created: ["createdOn"],
     rating: ["rating", "feedback", "satisfaction", "ratingName"],
     duration: ["diff", "duration", "closingTime", "resolutionTime", "timeTaken"],
     status: ["status", "complaintStatus"],
@@ -455,23 +455,49 @@
   }
 
   function parseExcelDate(value) {
-    if (value instanceof Date && !isNaN(value)) return value;
+    // IMPORTANT: Date and time analysis is based ONLY on the Excel createdOn value.
+    if (value instanceof Date && !isNaN(value)) {
+      return new Date(
+        value.getFullYear(), value.getMonth(), value.getDate(),
+        value.getHours(), value.getMinutes(), value.getSeconds()
+      );
+    }
 
-    if (typeof value === "number") {
+    if (typeof value === "number" && Number.isFinite(value)) {
       const parsed = XLSX.SSF.parse_date_code(value);
-      if (parsed) return new Date(parsed.y, parsed.m - 1, parsed.d, parsed.H || 0, parsed.M || 0, parsed.S || 0);
+      if (!parsed) return null;
+      return new Date(parsed.y, parsed.m - 1, parsed.d, parsed.H || 0, parsed.M || 0, parsed.S || 0);
     }
 
     if (typeof value === "string") {
       const s = value.trim();
       if (!s) return null;
 
-      // dd-mm-yyyy / dd/mm/yyyy with optional time
-      const m = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
-      if (m) return new Date(+m[3], +m[2]-1, +m[1], +(m[4]||0), +(m[5]||0), +(m[6]||0));
+      // RailMadad createdOn format: dd-mm-yy HH:MM (also accepts dd/mm/yy and 4-digit year).
+      const m = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2}|\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/);
+      if (m) {
+        const day = Number(m[1]);
+        const month = Number(m[2]);
+        let year = Number(m[3]);
+        if (m[3].length === 2) year += 2000;
+        const hour = Number(m[4] || 0);
+        const minute = Number(m[5] || 0);
+        const second = Number(m[6] || 0);
 
-      const d = new Date(s);
-      if (!isNaN(d)) return d;
+        const d = new Date(year, month - 1, day, hour, minute, second);
+        // Reject impossible dates instead of silently rolling them forward.
+        if (d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day &&
+            d.getHours() === hour && d.getMinutes() === minute) {
+          return d;
+        }
+        return null;
+      }
+
+      // Accept unambiguous ISO-like values if createdOn is ever exported that way.
+      const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/);
+      if (iso) {
+        return new Date(+iso[1], +iso[2]-1, +iso[3], +(iso[4]||0), +(iso[5]||0), +(iso[6]||0));
+      }
     }
 
     return null;
