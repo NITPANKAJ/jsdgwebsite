@@ -1,0 +1,1473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RailMadad Complaint Analysis Dashboard</title>
+
+  <!-- Excel reader -->
+    <div id="complaintDetailsModal" class="details-modal" role="dialog" aria-modal="true" aria-labelledby="detailsTitle">
+    <div class="details-dialog">
+      <div class="details-head">
+        <div><h2 id="detailsTitle">Complaint Details</h2><p>Complaint records for the selected train, based on the current dashboard filters.</p></div>
+        <button class="details-close" id="closeDetailsBtn" type="button">Close ✕</button>
+      </div>
+      <div class="details-body">
+        <div id="detailsCount" class="details-count"></div>
+        <div class="table-wrap">
+          <table id="complaintDetailsTable">
+            <thead><tr><th>Complaint Ref.</th><th>Date</th><th>Train No.</th><th>Complaint Type</th><th>Complaint Details</th><th>Department</th><th>Depot</th><th>Rating</th><th>Status</th></tr></thead>
+            <tbody id="complaintDetailsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <!-- Data labels on bars/lines -->
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+
+  <style>
+    :root {
+      --primary: #153e9f;
+      --primary2: #2457d6;
+      --bg: #f4f7fb;
+      --card: #ffffff;
+      --text: #172033;
+      --muted: #667085;
+      --border: #e5eaf2;
+      --shadow: 0 8px 24px rgba(20, 32, 60, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    header {
+      background: linear-gradient(120deg, var(--primary), var(--primary2));
+      color: white;
+      padding: 20px 28px;
+      box-shadow: var(--shadow);
+    }
+
+    .header-wrap {
+      max-width: 1500px;
+      margin: auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    h1 { margin: 0 0 5px; font-size: 26px; }
+    .subtitle { font-size: 13px; opacity: 0.9; }
+    .period-badge {
+      background: rgba(255,255,255,.16);
+      border: 1px solid rgba(255,255,255,.25);
+      padding: 9px 12px;
+      border-radius: 9px;
+      font-size: 12px;
+    }
+
+    main {
+      max-width: 1500px;
+      margin: 18px auto;
+      padding: 0 18px 35px;
+    }
+
+    .panel, .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+    }
+
+    .upload-panel {
+      padding: 14px;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .upload-panel input[type="file"] { max-width: 320px; }
+    .upload-status { font-size: 12px; color: var(--muted); }
+
+    .filters {
+      padding: 14px;
+      display: grid;
+      grid-template-columns: repeat(6, minmax(160px, 1fr));
+      gap: 10px;
+      align-items: end;
+    }
+
+    .filter label {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    select, input[type="text"] {
+      width: 100%;
+      height: 38px;
+      border: 1px solid #d7deea;
+      border-radius: 8px;
+      padding: 0 10px;
+      background: white;
+      color: var(--text);
+    }
+
+    .multi-select { position: relative; }
+    .multi-select-toggle {
+      width: 100%; height: 38px; border: 1px solid #d7deea; border-radius: 8px;
+      padding: 0 10px; background: #fff; color: var(--text); display: flex;
+      align-items: center; justify-content: space-between; gap: 8px; font-weight: 500;
+    }
+    .multi-select-toggle .label { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; }
+    .multi-select-toggle .arrow { font-size: 11px; color: var(--muted); }
+    .multi-select-menu {
+      position: absolute; left: 0; top: calc(100% + 5px); width: min(360px, 90vw);
+      background: #fff; border: 1px solid #d7deea; border-radius: 10px; box-shadow: 0 14px 34px rgba(20,32,60,.16);
+      padding: 9px; z-index: 50; display: none;
+    }
+    .multi-select.open .multi-select-menu { display: block; }
+    .multi-search { width: 100%; height: 34px !important; margin-bottom: 7px; }
+    .multi-toolbar { display: flex; gap: 6px; margin-bottom: 7px; }
+    .multi-toolbar button { height: 30px; padding: 0 9px; font-size: 11px; }
+    .multi-options { max-height: 245px; overflow: auto; border-top: 1px solid #eef1f6; }
+    .multi-option { display: flex; align-items: flex-start; gap: 8px; padding: 7px 4px; cursor: pointer; font-size: 12px; }
+    .multi-option:hover { background: #f7f9fc; }
+    .multi-option input { margin-top: 2px; accent-color: var(--primary2); }
+    .multi-empty { color: var(--muted); padding: 10px 4px; font-size: 12px; }
+    .filter-wide { min-width: 0; }
+
+    button {
+      height: 38px;
+      border: 0;
+      border-radius: 8px;
+      padding: 0 14px;
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    .primary { background: var(--primary2); color: white; }
+    .secondary { background: #edf2ff; color: #244da7; }
+    .filter-actions { display: flex; gap: 7px; }
+
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 12px;
+      margin: 14px 0;
+    }
+
+    .kpi { padding: 15px; }
+    .kpi-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 800;
+    }
+    .kpi-value { font-size: 27px; font-weight: 800; margin-top: 7px; }
+    .kpi-note {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 5px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 12px;
+    }
+
+    .span-12 { grid-column: span 12; }
+    .span-7 { grid-column: span 7; }
+    .span-6 { grid-column: span 6; }
+    .span-5 { grid-column: span 5; }
+
+    .chart-card { padding: 15px; min-height: 365px; }
+    .chart-title { font-size: 15px; font-weight: 800; }
+    .chart-subtitle { font-size: 11px; color: var(--muted); margin: 3px 0 12px; }
+    .chart-box { position: relative; height: 290px; }
+
+    .table-wrap { max-height: 430px; overflow: auto; }
+    .month-matrix-wrap { max-height: 520px; overflow: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .matrix-table th, .matrix-table td { white-space: nowrap; text-align: center; vertical-align: middle; }
+    .matrix-table tbody tr:nth-child(even) { background: #fbfcff; }
+    .matrix-table .train-cell { font-weight: 800; color: var(--primary); }
+    .matrix-table .type-cell { font-weight: 700; }
+    .matrix-table .total-cell { font-weight: 800; background: #f4f7ff; }
+    .ranking-table th, .ranking-table td { text-align: center; vertical-align: middle; }
+    .ranking-table tbody tr:nth-child(even) { background: #fbfcff; }
+    th, td { padding: 9px 10px; border-bottom: 1px solid var(--border); text-align: left; }
+    th {
+      position: sticky;
+      top: 0;
+      background: #f8fafc;
+      color: #475467;
+      font-size: 11px;
+      text-transform: uppercase;
+      z-index: 1;
+    }
+    .num { text-align: right; }
+    .rank { color: var(--primary2); font-weight: 800; }
+    .details-modal { display:none; position:fixed; inset:0; z-index:9999; background:rgba(15,23,42,.58); padding:3vh 3vw; }
+    .details-modal.open { display:flex; align-items:center; justify-content:center; }
+    .details-dialog { width:min(1200px,96vw); max-height:94vh; overflow:hidden; background:#fff; border-radius:16px; box-shadow:0 24px 70px rgba(0,0,0,.25); display:flex; flex-direction:column; }
+    .details-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:18px 20px; border-bottom:1px solid var(--border); }
+    .details-head h2 { margin:0; font-size:18px; }
+    .details-head p { margin:5px 0 0; color:var(--muted); font-size:12px; }
+    .details-close { border:0; border-radius:9px; padding:8px 12px; background:#edf2ff; color:#244da7; font-weight:800; cursor:pointer; }
+    .details-body { padding:14px 20px 20px; overflow:auto; }
+    .details-count { font-weight:800; margin-bottom:10px; color:#244da7; }
+    #complaintDetailsTable { min-width:900px; }
+    #complaintDetailsTable tbody tr:hover { background:#f1f6ff; }
+    #trainChart { cursor:pointer; }
+
+    .pills { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
+    .pill { padding: 6px 9px; border-radius: 99px; background: #eef3ff; font-size: 11px; color: #264fa9; }
+
+    .message {
+      padding: 18px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    footer { text-align: right; color: var(--muted); font-size: 11px; margin-top: 12px; }
+
+    @media (max-width: 1100px) {
+      .filters { grid-template-columns: repeat(3, 1fr); }
+      .kpis { grid-template-columns: repeat(3, 1fr); }
+      .span-7, .span-6, .span-5 { grid-column: span 12; }
+    }
+
+    @media (max-width: 650px) {
+      .filters { grid-template-columns: 1fr 1fr; }
+      .kpis { grid-template-columns: 1fr 1fr; }
+      .filter-actions { grid-column: span 2; }
+      .kpi-value { font-size: 22px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-wrap">
+    <div>
+      <h1>RailMadad Complaint Analysis</h1>
+      <div class="subtitle">Train-wise • Complaint type-wise • Month-wise • Time-wise • Overall analysis</div>
+    </div>
+    <div class="period-badge" id="periodBadge">Upload Excel file to begin • Date/time source: createdOn</div>
+  </div>
+</header>
+
+<main>
+
+  <section class="panel upload-panel">
+    <strong>Google Sheets Data:</strong>
+    <button class="primary" id="loadSheetBtn" type="button">Load / Refresh Data</button>
+    <span class="upload-status" id="uploadStatus">Connect your Google Apps Script Web App URL in the JavaScript settings.</span>
+  </section>
+
+  <section class="panel filters">
+    <div class="filter filter-wide">
+      <label>Train (Multiple)</label>
+      <div class="multi-select" id="trainFilter"></div>
+    </div>
+
+    <div class="filter filter-wide">
+      <label>Complaint Type (Multiple)</label>
+      <div class="multi-select" id="typeFilter"></div>
+    </div>
+
+    <div class="filter filter-wide">
+      <label>Month (Multiple)</label>
+      <div class="multi-select" id="monthFilter"></div>
+    </div>
+
+    <div class="filter filter-wide">
+      <label>Time Band (Multiple)</label>
+      <div class="multi-select" id="timeFilter"></div>
+    </div>
+
+    <div class="filter filter-wide">
+      <label>Department Code (Multiple)</label>
+      <div class="multi-select" id="deptCodeFilter"></div>
+    </div>
+
+    <div class="filter filter-wide">
+      <label>Primary Depot (Multiple)</label>
+      <div class="multi-select" id="primaryDepotFilter"></div>
+    </div>
+
+    <div class="filter filter-wide">
+      <label>Division Code (Multiple)</label>
+      <div class="multi-select" id="divCodeFilter"></div>
+    </div>
+
+    <div class="filter filter-wide">
+      <label>Coach Type (Multiple)</label>
+      <div class="multi-select" id="coachTypeFilter"></div>
+    </div>
+
+    <div class="filter filter-wide">
+      <label>Own Zone Code (Multiple)</label>
+      <div class="multi-select" id="ownZoneCodeFilter"></div>
+    </div>
+
+    <div class="filter filter-wide">
+      <label>Rating (Multiple)</label>
+      <div class="multi-select" id="ratingFilter"></div>
+    </div>
+
+    <div class="filter filter-wide">
+      <label>User ID (Multiple)</label>
+      <div class="multi-select" id="userIdFilter"></div>
+    </div>
+
+    <div class="filter">
+      <label>Search Train / Name</label>
+      <input type="text" id="searchFilter" placeholder="e.g. 13023 or GAYA" />
+    </div>
+
+    <div class="filter-actions">
+      <button class="primary" id="applyBtn">Apply</button>
+      <button class="secondary" id="resetBtn">Reset</button>
+    </div>
+  </section>
+
+  <section class="kpis">
+    <div class="card kpi">
+      <div class="kpi-label">Total Complaints</div>
+      <div class="kpi-value" id="kTotal">0</div>
+      <div class="kpi-note" id="kTotalNote">No file loaded</div>
+    </div>
+
+    <div class="card kpi">
+      <div class="kpi-label">Trains Covered</div>
+      <div class="kpi-value" id="kTrains">0</div>
+      <div class="kpi-note">Unique train numbers</div>
+    </div>
+
+    <div class="card kpi">
+      <div class="kpi-label">Top Complaint</div>
+      <div class="kpi-value" id="kTopType" style="font-size:19px">–</div>
+      <div class="kpi-note" id="kTopTypeNote">–</div>
+    </div>
+
+    <div class="card kpi">
+      <div class="kpi-label">Avg. Closing Time</div>
+      <div class="kpi-value" id="kAvg">–</div>
+      <div class="kpi-note">Based on available duration data</div>
+    </div>
+
+    <div class="card kpi">
+      <div class="kpi-label">Peak Complaint Hour</div>
+      <div class="kpi-value" id="kPeak">–</div>
+      <div class="kpi-note" id="kPeakNote">–</div>
+    </div>
+
+    <div class="card kpi">
+      <div class="kpi-label">Unsatisfactory Rating</div>
+      <div class="kpi-value" id="kUnsat">–</div>
+      <div class="kpi-note" id="kRatingNote">–</div>
+    </div>
+  </section>
+
+  <section class="grid">
+    <div class="card chart-card span-6">
+      <div class="chart-title">Train-wise Complaints</div>
+      <div class="chart-subtitle">Top 15 trains by complaint count</div>
+      <div class="chart-box"><canvas id="trainChart"></canvas></div>
+    </div>
+
+    <div class="card chart-card span-6">
+      <div class="chart-title">Complaint Type-wise Analysis</div>
+      <div class="chart-subtitle">Distribution across complaint categories</div>
+      <div class="chart-box"><canvas id="typeChart"></canvas></div>
+    </div>
+
+    <div class="card chart-card span-5">
+      <div class="chart-title">Time Band Summary</div>
+      <div class="chart-subtitle">Complaint distribution across four 6-hour bands, based on createdOn</div>
+      <div class="chart-box"><canvas id="bandChart"></canvas></div>
+    </div>
+
+    <div class="card chart-card span-7">
+      <div class="chart-title">Complaint Subtype Analysis</div>
+      <div class="chart-subtitle">Top detailed complaint reasons</div>
+      <div class="chart-box"><canvas id="subtypeChart"></canvas></div>
+    </div>
+
+    <div class="card chart-card span-6">
+      <div class="chart-title">Month-wise Trend</div>
+      <div class="chart-subtitle">Number of complaints received in each month, based on createdOn</div>
+      <div class="chart-box"><canvas id="monthChart"></canvas></div>
+    </div>
+
+    <div class="card chart-card span-6">
+      <div class="chart-title">Time-wise Analysis</div>
+      <div class="chart-subtitle">Complaint count by hour of day, based on createdOn</div>
+      <div class="chart-box"><canvas id="hourChart"></canvas></div>
+    </div>
+
+    <div class="card chart-card span-12 dept-month-analytics">
+      <div class="chart-title">Department Code Comparison — Month-wise</div>
+      <div class="chart-subtitle">Compare each department across months. Bar colours distinguish departments; values are shown on bars and totals can be checked in the tooltip. Results follow the selected dashboard filters.</div>
+      <div class="chart-box"><canvas id="deptCodeMonthChart"></canvas></div>
+    </div>
+
+    <div class="card chart-card span-12">
+      <div class="chart-title">Train × Complaint Type × Month-wise Summary</div>
+      <div class="chart-subtitle">Complaint count for each train and complaint type, distributed month-wise. This table follows the selected dashboard filters.</div>
+      <div class="month-matrix-wrap">
+        <table class="matrix-table">
+          <thead id="monthMatrixHead">
+            <tr><th>Train No.</th><th>Complaint Type</th><th class="num">Total</th></tr>
+          </thead>
+          <tbody id="monthMatrixBody">
+            <tr><td colspan="3" class="message">Upload the Excel file to start analysis.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card chart-card span-12">
+      <div class="chart-title">Overall Train Ranking</div>
+      <div class="chart-subtitle">Complaint count, share, dominant complaint type and average closing time</div>
+      <div class="pills" id="summaryPills"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Train</th>
+              <th>Train Name</th>
+              <th class="num">Complaints</th>
+              <th class="num">Share</th>
+              <th>Dominant Type</th>
+              <th class="num">Avg Time</th>
+            </tr>
+          </thead>
+          <tbody id="rankingBody">
+            <tr><td colspan="7" class="message">Upload the Excel file to start analysis.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <footer>RailMadad Complaint Analysis Dashboard</footer>
+</main>
+
+<script>
+  let DATA = [];
+  let CURRENT_FILTERED_DATA = [];
+  let chartObjects = {};
+
+  // STEP 1: Paste your deployed Google Apps Script Web App URL here.
+  // Keep the URL inside quotation marks.
+  const GOOGLE_SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyV0bWj6dA6VbbuM3MA5pgrPxk1DNYoPjYbQFKacaXmL6-XRJ3te4h2hcHFYQ2Qi2qN/exec";
+
+  // Load rows from Google Sheets using JSONP.
+  // This avoids common cross-origin (CORS) problems when opening the HTML locally.
+  document.getElementById("loadSheetBtn").addEventListener("click", loadGoogleSheet);
+
+  function loadGoogleSheet() {
+    const status = document.getElementById("uploadStatus");
+    if (!GOOGLE_SHEETS_WEB_APP_URL.startsWith("https://script.google.com/")) {
+      status.textContent = "Please paste your deployed Google Apps Script Web App URL into GOOGLE_SHEETS_WEB_APP_URL first.";
+      return;
+    }
+
+    status.textContent = "Connecting to Google Sheets...";
+    const oldScript = document.getElementById("googleSheetJsonp");
+    if (oldScript) oldScript.remove();
+
+    // Unique callback name prevents conflicts if Refresh is clicked more than once.
+    const callbackName = "receiveRailMadadData";
+    window[callbackName] = function(payload) {
+      try {
+        if (!payload || payload.ok !== true) {
+          throw new Error(payload && payload.error ? payload.error : "The Web App did not return valid data.");
+        }
+        if (!Array.isArray(payload.data) || payload.data.length === 0) {
+          throw new Error("No complaint rows found. Check the worksheet name and data.");
+        }
+
+        DATA = payload.data.map(normalizeRow).filter(Boolean);
+        if (!DATA.length) {
+          throw new Error("Rows were received, but no usable dates were found in createdOn. Check the date format.");
+        }
+
+        populateFilters();
+        updateDashboard();
+        setPeriodBadge();
+        status.textContent = "Google Sheets connected successfully • " +
+          DATA.length.toLocaleString("en-IN") + " usable complaint rows loaded.";
+      } catch (err) {
+        console.error(err);
+        status.textContent = "Unable to load Google Sheets data: " + err.message;
+      } finally {
+        delete window[callbackName];
+        const script = document.getElementById("googleSheetJsonp");
+        if (script) script.remove();
+      }
+    };
+
+    const script = document.createElement("script");
+    script.id = "googleSheetJsonp";
+    script.onerror = function() {
+      status.textContent = "Connection failed. Check the Web App URL, deployment access, and internet connection.";
+      delete window[callbackName];
+      script.remove();
+    };
+    script.src = GOOGLE_SHEETS_WEB_APP_URL +
+      (GOOGLE_SHEETS_WEB_APP_URL.includes("?") ? "&" : "?") +
+      "callback=" + encodeURIComponent(callbackName) + "&t=" + Date.now();
+    document.body.appendChild(script);
+  }
+
+  // Show numeric values directly on charts.
+  if (typeof ChartDataLabels !== "undefined") {
+    Chart.register(ChartDataLabels);
+  }
+
+  // Reusable palette so every bar can have a different colour.
+  const CHART_PALETTE = [
+    "#2457d6", "#16a085", "#e59b23", "#7b61d1", "#e74c3c",
+    "#3498db", "#27ae60", "#f39c12", "#8e44ad", "#d35400",
+    "#1abc9c", "#c0392b", "#2c3e50", "#9b59b6", "#2980b9"
+  ];
+
+  const FIELD_CANDIDATES = {
+    ref: ["complaintRefNo", "registrationNo", "complaintNo", "ref", "referenceNo"],
+    train: ["trainStation", "trainNo", "trainNumber", "train"],
+    trainName: ["trainNameForReport/Station Name", "trainStationName", "trainName", "train_name", "trainDesc", "trainDescription"],
+    type: ["compTypeName", "complaintType", "type", "category"],
+    subtype: ["subTypeName", "complaintSubType", "subtype", "subCategory"],
+    created: ["createdOn"],
+    rating: ["rating", "feedback", "satisfaction", "ratingName"],
+    ownZoneCode: ["ownZoneCode", "ownzonecode", "own_zone_code"],
+    userId: ["userId", "userid", "user_id", "userID"],
+    duration: ["diff", "duration", "closingTime", "resolutionTime", "timeTaken"],
+    status: ["status", "complaintStatus"],
+    coach: ["coachType", "coach", "coachNo", "coachClass"],
+    depot: ["primaryDepot", "depot", "depotCode", "division", "station"],
+    deptCode: ["deptCode", "deptcode", "departmentCode", "department_code"],
+    primaryDepot: ["primaryDepot", "primary_depot", "depotName", "depot"],
+    divCode: ["divCode", "divcode", "divisionCode", "division_code"],
+    coachType: ["coachType", "coach_type", "coach", "coachClass"]
+  };
+
+  function firstValue(row, candidates) {
+    for (const key of candidates) {
+      if (Object.prototype.hasOwnProperty.call(row, key) && row[key] !== "" && row[key] != null) {
+        return row[key];
+      }
+    }
+
+    const lowerMap = {};
+    Object.keys(row).forEach(k => lowerMap[k.toLowerCase().replace(/\s+/g, "")] = k);
+
+    for (const key of candidates) {
+      const actual = lowerMap[key.toLowerCase().replace(/\s+/g, "")];
+      if (actual && row[actual] !== "" && row[actual] != null) return row[actual];
+    }
+
+    return "";
+  }
+
+  function parseExcelDate(value) {
+    // IMPORTANT: Date and time analysis is based ONLY on the Excel createdOn value.
+    if (value instanceof Date && !isNaN(value)) {
+      return new Date(
+        value.getFullYear(), value.getMonth(), value.getDate(),
+        value.getHours(), value.getMinutes(), value.getSeconds()
+      );
+    }
+
+    if (typeof value === "number" && Number.isFinite(value)) {
+      const parsed = XLSX.SSF.parse_date_code(value);
+      if (!parsed) return null;
+      return new Date(parsed.y, parsed.m - 1, parsed.d, parsed.H || 0, parsed.M || 0, parsed.S || 0);
+    }
+
+    if (typeof value === "string") {
+      const s = value.trim();
+      if (!s) return null;
+
+      // RailMadad createdOn format: dd-mm-yy HH:MM (also accepts dd/mm/yy and 4-digit year).
+      const m = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2}|\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/);
+      if (m) {
+        const day = Number(m[1]);
+        const month = Number(m[2]);
+        let year = Number(m[3]);
+        if (m[3].length === 2) year += 2000;
+        const hour = Number(m[4] || 0);
+        const minute = Number(m[5] || 0);
+        const second = Number(m[6] || 0);
+
+        const d = new Date(year, month - 1, day, hour, minute, second);
+        // Reject impossible dates instead of silently rolling them forward.
+        if (d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day &&
+            d.getHours() === hour && d.getMinutes() === minute) {
+          return d;
+        }
+        return null;
+      }
+
+      // Accept unambiguous ISO-like values if createdOn is ever exported that way.
+      const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/);
+      if (iso) {
+        return new Date(+iso[1], +iso[2]-1, +iso[3], +(iso[4]||0), +(iso[5]||0), +(iso[6]||0));
+      }
+    }
+
+    return null;
+  }
+
+  function normalizeDuration(value) {
+    if (value === "" || value == null) return null;
+    if (typeof value === "number" && isFinite(value)) return value;
+
+    const text = String(value).trim().toLowerCase();
+    if (!text) return null;
+
+    // HH:MM or HH:MM:SS
+    const clock = text.match(/^(\d{1,3}):(\d{1,2})(?::\d{1,2})?$/);
+    if (clock) return (+clock[1] * 60) + (+clock[2]);
+
+    let minutes = 0;
+    const h = text.match(/(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)/);
+    const m = text.match(/(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes)/);
+    if (h) minutes += parseFloat(h[1]) * 60;
+    if (m) minutes += parseFloat(m[1]);
+    if (h || m) return minutes;
+
+    const n = Number(text.replace(/[^0-9.\-]/g, ""));
+    return isFinite(n) ? n : null;
+  }
+
+  function normalizeRow(row) {
+    const date = parseExcelDate(firstValue(row, FIELD_CANDIDATES.created));
+    if (!date) return null;
+
+    const train = String(firstValue(row, FIELD_CANDIDATES.train) || "").trim();
+    const trainName = String(firstValue(row, FIELD_CANDIDATES.trainName) || "").trim();
+    const type = String(firstValue(row, FIELD_CANDIDATES.type) || "Others").trim();
+    const subtype = String(firstValue(row, FIELD_CANDIDATES.subtype) || "Others").trim();
+
+    return {
+      ref: String(firstValue(row, FIELD_CANDIDATES.ref) || "").trim(),
+      train,
+      trainName,
+      type,
+      subtype,
+      date,
+      dateKey: `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`,
+      month: `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}`,
+      hour: date.getHours(),
+      rating: String(firstValue(row, FIELD_CANDIDATES.rating) || "Not specified").trim() || "Not specified",
+      ownZoneCode: String(firstValue(row, FIELD_CANDIDATES.ownZoneCode) || "Not specified").trim() || "Not specified",
+      userId: String(firstValue(row, FIELD_CANDIDATES.userId) || "Not specified").trim() || "Not specified",
+      duration: normalizeDuration(firstValue(row, FIELD_CANDIDATES.duration)),
+      status: String(firstValue(row, FIELD_CANDIDATES.status) || "").trim(),
+      coach: String(firstValue(row, FIELD_CANDIDATES.coach) || "").trim(),
+      depot: String(firstValue(row, FIELD_CANDIDATES.depot) || "").trim(),
+      deptCode: String(firstValue(row, FIELD_CANDIDATES.deptCode) || "Not specified").trim() || "Not specified",
+      primaryDepot: String(firstValue(row, FIELD_CANDIDATES.primaryDepot) || "Not specified").trim() || "Not specified",
+      divCode: String(firstValue(row, FIELD_CANDIDATES.divCode) || "Not specified").trim() || "Not specified",
+      coachType: String(firstValue(row, FIELD_CANDIDATES.coachType) || "Not specified").trim() || "Not specified"
+    };
+  }
+
+  document.getElementById("applyBtn").addEventListener("click", updateDashboard);
+  document.getElementById("resetBtn").addEventListener("click", resetFilters);
+  document.getElementById("searchFilter").addEventListener("keydown", e => {
+    if (e.key === "Enter") updateDashboard();
+  });
+
+  function handleFile(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    document.getElementById("uploadStatus").textContent = `Reading ${file.name}...`;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        const workbook = XLSX.read(e.target.result, { type: "array", cellDates: true });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: true });
+
+        DATA = rows.map(normalizeRow).filter(Boolean);
+
+        if (!DATA.length) {
+          throw new Error("No usable rows were found. Please check the date and complaint columns.");
+        }
+
+        populateFilters();
+        updateDashboard();
+        setPeriodBadge();
+
+        document.getElementById("uploadStatus").textContent =
+          `${file.name} loaded successfully • Sheet: ${sheetName} • ${DATA.length.toLocaleString("en-IN")} complaint rows`;
+      } catch (err) {
+        console.error(err);
+        DATA = [];
+        document.getElementById("uploadStatus").textContent = "Unable to read file: " + err.message;
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function setPeriodBadge() {
+    if (!DATA.length) return;
+    const dates = DATA.map(r => r.date).sort((a,b) => a-b);
+    document.getElementById("periodBadge").textContent =
+      `Data period: ${formatDate(dates[0])} to ${formatDate(dates[dates.length-1])}`;
+  }
+
+  function formatDate(d) {
+    return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  }
+
+  function monthLabel(monthKey) {
+    const [y,m] = monthKey.split("-").map(Number);
+    return new Date(y,m-1,1).toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+  }
+
+  const MULTI_FILTERS = {};
+
+  function createMultiSelect(id, items, allLabel, labelFunction = x => x) {
+    const root = document.getElementById(id);
+    const state = {
+      id,
+      allLabel,
+      items: items.map(v => ({ value: String(v), label: String(labelFunction(v)) })),
+      selected: new Set()
+    };
+    MULTI_FILTERS[id] = state;
+
+    root.innerHTML = `
+      <button type="button" class="multi-select-toggle" aria-expanded="false">
+        <span class="label">${escapeHtml(allLabel)}</span><span class="arrow">▼</span>
+      </button>
+      <div class="multi-select-menu">
+        <input type="text" class="multi-search" placeholder="Search...">
+        <div class="multi-toolbar">
+          <button type="button" class="secondary select-all-btn">Select All</button>
+          <button type="button" class="secondary clear-all-btn">Clear All</button>
+        </div>
+        <div class="multi-options"></div>
+      </div>`;
+
+    const toggle = root.querySelector('.multi-select-toggle');
+    const search = root.querySelector('.multi-search');
+
+    toggle.addEventListener('click', e => {
+      e.stopPropagation();
+      document.querySelectorAll('.multi-select.open').forEach(el => {
+        if (el !== root) el.classList.remove('open');
+      });
+      root.classList.toggle('open');
+      toggle.setAttribute('aria-expanded', root.classList.contains('open') ? 'true' : 'false');
+      if (root.classList.contains('open')) setTimeout(() => search.focus(), 0);
+    });
+
+    root.querySelector('.multi-select-menu').addEventListener('click', e => e.stopPropagation());
+    search.addEventListener('input', () => renderMultiOptions(id, search.value));
+    root.querySelector('.select-all-btn').addEventListener('click', () => {
+      const q = search.value.trim().toLowerCase();
+      state.items.filter(item => !q || item.label.toLowerCase().includes(q)).forEach(item => state.selected.add(item.value));
+      renderMultiOptions(id, search.value);
+      updateMultiLabel(id);
+    });
+    root.querySelector('.clear-all-btn').addEventListener('click', () => {
+      state.selected.clear();
+      renderMultiOptions(id, search.value);
+      updateMultiLabel(id);
+    });
+
+    renderMultiOptions(id, '');
+    updateMultiLabel(id);
+  }
+
+  function renderMultiOptions(id, query = '') {
+    const state = MULTI_FILTERS[id];
+    if (!state) return;
+    const root = document.getElementById(id);
+    const box = root.querySelector('.multi-options');
+    const q = query.trim().toLowerCase();
+    const shown = state.items.filter(item => !q || item.label.toLowerCase().includes(q));
+
+    box.innerHTML = shown.length ? shown.map(item => `
+      <label class="multi-option">
+        <input type="checkbox" value="${escapeHtml(item.value)}" ${state.selected.has(item.value) ? 'checked' : ''}>
+        <span>${escapeHtml(item.label)}</span>
+      </label>`).join('') : '<div class="multi-empty">No matching option</div>';
+
+    box.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        if (cb.checked) state.selected.add(cb.value); else state.selected.delete(cb.value);
+        updateMultiLabel(id);
+      });
+    });
+  }
+
+  function updateMultiLabel(id) {
+    const state = MULTI_FILTERS[id];
+    const label = document.getElementById(id).querySelector('.multi-select-toggle .label');
+    const n = state.selected.size;
+    if (n === 0 || n === state.items.length) {
+      label.textContent = state.allLabel;
+    } else if (n === 1) {
+      const only = [...state.selected][0];
+      label.textContent = state.items.find(x => x.value === only)?.label || `${n} selected`;
+    } else {
+      label.textContent = `${n} selected`;
+    }
+  }
+
+  function getMultiValues(id) {
+    const state = MULTI_FILTERS[id];
+    if (!state || state.selected.size === 0 || state.selected.size === state.items.length) return null;
+    return new Set(state.selected);
+  }
+
+  document.addEventListener('click', () => {
+    document.querySelectorAll('.multi-select.open').forEach(el => {
+      el.classList.remove('open');
+      el.querySelector('.multi-select-toggle')?.setAttribute('aria-expanded', 'false');
+    });
+  });
+
+  function populateFilters() {
+    const trains = [...new Set(DATA.map(r => r.train).filter(Boolean))]
+      .sort((a,b) => Number(a) - Number(b));
+    const types = [...new Set(DATA.map(r => r.type).filter(Boolean))].sort();
+    const months = [...new Set(DATA.map(r => r.month))].sort();
+    const timeBands = ['0-5', '6-11', '12-17', '18-23'];
+    const timeLabels = {
+      '0-5': '00:00–05:59',
+      '6-11': '06:00–11:59',
+      '12-17': '12:00–17:59',
+      '18-23': '18:00–23:59'
+    };
+
+    createMultiSelect('trainFilter', trains, 'All Trains', t => {
+      const name = DATA.find(r => r.train === t)?.trainName || '';
+      return name ? `${t} - ${name}` : t;
+    });
+    createMultiSelect('typeFilter', types, 'All Complaint Types');
+    createMultiSelect('monthFilter', months, 'All Months', monthLabel);
+    createMultiSelect('timeFilter', timeBands, 'All Hours', t => timeLabels[t]);
+    createMultiSelect('deptCodeFilter', [...new Set(DATA.map(r => r.deptCode).filter(Boolean))].sort(), 'All Department Codes');
+    createMultiSelect('primaryDepotFilter', [...new Set(DATA.map(r => r.primaryDepot).filter(Boolean))].sort(), 'All Primary Depots');
+    createMultiSelect('divCodeFilter', [...new Set(DATA.map(r => r.divCode).filter(Boolean))].sort(), 'All Division Codes');
+    createMultiSelect('coachTypeFilter', [...new Set(DATA.map(r => r.coachType).filter(Boolean))].sort(), 'All Coach Types');
+    createMultiSelect('ownZoneCodeFilter', [...new Set(DATA.map(r => r.ownZoneCode).filter(Boolean))].sort(), 'All Own Zone Codes');
+    createMultiSelect('ratingFilter', [...new Set(DATA.map(r => r.rating).filter(Boolean))].sort(), 'All Ratings');
+    createMultiSelect('userIdFilter', [...new Set(DATA.map(r => r.userId).filter(Boolean))].sort(), 'All User IDs');
+  }
+
+  function getFilteredData() {
+    const trains = getMultiValues('trainFilter');
+    const types = getMultiValues('typeFilter');
+    const months = getMultiValues('monthFilter');
+    const timeBands = getMultiValues('timeFilter');
+    const deptCodes = getMultiValues('deptCodeFilter');
+    const primaryDepots = getMultiValues('primaryDepotFilter');
+    const divCodes = getMultiValues('divCodeFilter');
+    const coachTypes = getMultiValues('coachTypeFilter');
+    const ownZoneCodes = getMultiValues('ownZoneCodeFilter');
+    const ratings = getMultiValues('ratingFilter');
+    const userIds = getMultiValues('userIdFilter');
+    const search = document.getElementById('searchFilter').value.trim().toLowerCase();
+
+    return DATA.filter(r => {
+      // OR within each filter, AND between filter groups.
+      if (trains && !trains.has(r.train)) return false;
+      if (types && !types.has(r.type)) return false;
+      if (months && !months.has(r.month)) return false;
+      if (deptCodes && !deptCodes.has(r.deptCode)) return false;
+      if (primaryDepots && !primaryDepots.has(r.primaryDepot)) return false;
+      if (divCodes && !divCodes.has(r.divCode)) return false;
+      if (coachTypes && !coachTypes.has(r.coachType)) return false;
+      if (ownZoneCodes && !ownZoneCodes.has(r.ownZoneCode)) return false;
+      if (ratings && !ratings.has(r.rating)) return false;
+      if (userIds && !userIds.has(r.userId)) return false;
+
+      if (timeBands) {
+        const inSelectedBand = [...timeBands].some(band => {
+          const [start, end] = band.split('-').map(Number);
+          return r.hour >= start && r.hour <= end;
+        });
+        if (!inSelectedBand) return false;
+      }
+
+      if (search) {
+        const hay = `${r.train} ${r.trainName}`.toLowerCase();
+        if (!hay.includes(search)) return false;
+      }
+      return true;
+    });
+  }
+
+  function countBy(data, accessor) {
+    const result = {};
+    data.forEach(row => {
+      const key = typeof accessor === "function" ? accessor(row) : row[accessor];
+      if (key !== "" && key != null) result[key] = (result[key] || 0) + 1;
+    });
+    return result;
+  }
+
+  function sortedEntries(obj) {
+    return Object.entries(obj).sort((a,b) => b[1] - a[1]);
+  }
+
+  function average(values) {
+    const usable = values.filter(v => Number.isFinite(v));
+    return usable.length ? usable.reduce((a,b) => a+b, 0) / usable.length : null;
+  }
+
+  function formatMinutes(value) {
+    if (value == null) return "–";
+    const total = Math.round(value);
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  }
+
+  function destroyChart(name) {
+    if (chartObjects[name]) {
+      chartObjects[name].destroy();
+      delete chartObjects[name];
+    }
+  }
+
+  function makeChart(name, canvasId, config) {
+    destroyChart(name);
+    chartObjects[name] = new Chart(document.getElementById(canvasId), config);
+  }
+
+  function baseOptions(horizontal = false) {
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      indexAxis: horizontal ? "y" : "x",
+      plugins: {
+        legend: {
+          display: false,
+          labels: { font: { size: 12, weight: "bold" }, color: "#344054" }
+        },
+        tooltip: { enabled: true },
+        datalabels: {
+          display: false
+        }
+      },
+      scales: {
+        x: {
+          beginAtZero: true,
+          grid: { color: "rgba(0,0,0,0.05)" },
+          ticks: { color: "#475467", font: { size: 11, weight: "bold" } }
+        },
+        y: {
+          beginAtZero: true,
+          grid: { color: "rgba(0,0,0,0.05)" },
+          ticks: { color: "#475467", font: { size: 11, weight: "bold" } }
+        }
+      }
+    };
+  }
+
+  function updateDashboard() {
+    if (!DATA.length) return;
+
+    const filtered = getFilteredData();
+    CURRENT_FILTERED_DATA = filtered;
+    updateKpis(filtered);
+    renderTrainChart(filtered);
+    renderTypeChart(filtered);
+    renderDeptCodeMonthChart(filtered);
+    renderMonthChart(filtered);
+    renderHourChart(filtered);
+    renderBandChart(filtered);
+    renderSubtypeChart(filtered);
+    renderMonthWiseTable(filtered);
+    renderRanking(filtered);
+  }
+
+  function updateKpis(data) {
+    const total = data.length;
+    const trains = countBy(data, "train");
+    const types = countBy(data, "type");
+    const hours = countBy(data, r => r.hour);
+
+    document.getElementById("kTotal").textContent = total.toLocaleString("en-IN");
+    document.getElementById("kTotalNote").textContent = DATA.length
+      ? `${((total / DATA.length) * 100).toFixed(1)}% of all loaded complaints`
+      : "";
+
+    document.getElementById("kTrains").textContent = Object.keys(trains).length.toLocaleString("en-IN");
+
+    const topType = sortedEntries(types)[0];
+    document.getElementById("kTopType").textContent = topType ? topType[0] : "–";
+    document.getElementById("kTopTypeNote").textContent = topType && total
+      ? `${topType[1].toLocaleString("en-IN")} complaints • ${(topType[1] * 100 / total).toFixed(1)}%`
+      : "No complaints";
+
+    const avgDuration = average(data.map(r => r.duration));
+    document.getElementById("kAvg").textContent = formatMinutes(avgDuration);
+
+    const peak = sortedEntries(hours)[0];
+    document.getElementById("kPeak").textContent = peak
+      ? `${String(peak[0]).padStart(2,"0")}:00`
+      : "–";
+    document.getElementById("kPeakNote").textContent = peak
+      ? `${peak[1].toLocaleString("en-IN")} complaints`
+      : "No complaints";
+
+    const rated = data.filter(r => r.rating);
+    const unsat = rated.filter(r => r.rating.toLowerCase().includes("unsatisfactory")).length;
+    document.getElementById("kUnsat").textContent = rated.length
+      ? `${(unsat * 100 / rated.length).toFixed(1)}%`
+      : "–";
+    document.getElementById("kRatingNote").textContent =
+      `${unsat.toLocaleString("en-IN")} of ${rated.length.toLocaleString("en-IN")} rated complaints`;
+  }
+
+  function renderTrainChart(data) {
+    const entries = sortedEntries(countBy(data, "train")).slice(0,15);
+    // Keep only the train number on the horizontal axis, even if the source field includes a name.
+    const labels = entries.map(([train]) => {
+      const match = String(train).match(/\d{4,5}/);
+      return match ? match[0] : String(train).trim();
+    });
+
+    makeChart("train", "trainChart", {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [{
+          label: "Complaints",
+          data: entries.map(x => x[1]),
+          backgroundColor: entries.map((_, i) => CHART_PALETTE[i % CHART_PALETTE.length]),
+          borderRadius: 6,
+          borderSkipped: false,
+          borderWidth: 0
+        }]
+      },
+      options: (() => {
+        const options = baseOptions(false);
+        options.layout = { padding: { top: 26 } };
+        options.plugins.datalabels = {
+          display: true,
+          anchor: "end",
+          align: "top",
+          offset: 3,
+          clamp: true,
+          clip: false,
+          color: "#172033",
+          font: { size: 12, weight: "bold" },
+          formatter: value => Number(value).toLocaleString("en-IN")
+        };
+        options.scales.x.ticks.maxRotation = 0;
+        options.scales.x.ticks.minRotation = 0;
+        options.scales.x.title = { display: true, text: "Train Number", color: "#475467", font: { weight: "bold" } };
+        options.scales.y.title = { display: true, text: "Number of Complaints", color: "#475467", font: { weight: "bold" } };
+        options.onClick = (event, elements, chart) => {
+          if (!elements.length) return;
+          const index = elements[0].index;
+          openTrainComplaintDetails(labels[index]);
+        };
+        options.onHover = (event, elements) => { event.native.target.style.cursor = elements.length ? "pointer" : "default"; };
+        return options;
+      })()
+    });
+  }
+
+  function renderTypeChart(data) {
+    const entries = sortedEntries(countBy(data, "type"));
+    makeChart("type", "typeChart", {
+      type: "bar",
+      data: {
+        labels: entries.map(x => x[0]),
+        datasets: [{
+          label: "Complaints",
+          data: entries.map(x => x[1]),
+          backgroundColor: entries.map((_, i) => CHART_PALETTE[(i + 3) % CHART_PALETTE.length]),
+          borderWidth: 0
+        }]
+      },
+      options: (() => {
+        const options = baseOptions(true);
+        options.layout = { padding: { right: 28 } };
+        options.plugins.datalabels = {
+          display: true,
+          anchor: "end",
+          align: "right",
+          offset: 4,
+          clamp: true,
+          clip: false,
+          color: "#172033",
+          font: { size: 12, weight: "bold" },
+          formatter: value => Number(value).toLocaleString("en-IN")
+        };
+        return options;
+      })()
+    });
+  }
+
+  function renderDeptCodeMonthChart(data) {
+    const months = [...new Set(data.map(r => r.month))].sort();
+    const departments = [...new Set(data.map(r => r.deptCode || "Not specified"))].sort();
+    // Calm, readable comparison colours: blue for the first department and light orange for the next.
+    const departmentColors = ["#5B7DB1", "#E7B27D", "#8FAFCF", "#F0D0A8", "#405F8C", "#C98C61"];
+    const datasets = departments.map((dept, i) => ({
+      label: dept,
+      data: months.map(month => data.filter(r => r.month === month && (r.deptCode || "Not specified") === dept).length),
+      backgroundColor: departmentColors[i % departmentColors.length],
+      borderColor: departmentColors[i % departmentColors.length],
+      borderWidth: 1,
+      borderRadius: 5,
+      borderSkipped: false
+    }));
+    makeChart("deptCodeMonth", "deptCodeMonthChart", {
+      type: "bar",
+      data: { labels: months.map(month => { const [y, m] = month.split("-").map(Number); return new Date(y, m - 1, 1).toLocaleDateString("en-GB", { month: "short", year: "2-digit" }); }), datasets },
+      options: {
+        ...baseOptions(false),
+        plugins: {
+          legend: { display: true, position: "bottom", labels: { color: "#344054", font: { size: 11, weight: "bold" } } },
+          tooltip: {
+            enabled: true,
+            callbacks: {
+              label: context => `${context.dataset.label}: ${Number(context.raw || 0).toLocaleString("en-IN")} complaints`,
+              footer: items => `Month total: ${items.reduce((sum, item) => sum + Number(item.raw || 0), 0).toLocaleString("en-IN")}`
+            }
+          },
+          datalabels: {
+            display: context => context.dataset.data[context.dataIndex] > 0,
+            color: "#172033", anchor: "end", align: "top", clamp: true,
+            font: { size: 10, weight: "bold" },
+            formatter: value => Number(value).toLocaleString("en-IN")
+          }
+        },
+        scales: {
+          x: { stacked: false, grid: { color: "rgba(37,99,235,0.10)" }, ticks: { color: "#334155", font: { size: 10, weight: "bold" }, minRotation: 90, maxRotation: 90, autoSkip: false } },
+          y: { beginAtZero: true, grid: { color: "rgba(37,99,235,0.10)" }, title: { display: true, text: "Number of complaints", color: "#475467", font: { weight: "bold" } }, ticks: { precision: 0, color: "#334155", font: { weight: "bold" } } }
+        }
+      }
+    });
+  }
+
+  function renderMonthChart(data) {
+    const allMonths = [...new Set(DATA.map(r => r.month))].sort();
+    const counts = countBy(data, "month");
+
+    makeChart("month", "monthChart", {
+      type: "line",
+      data: {
+        labels: allMonths.map(monthLabel),
+        datasets: [{
+          label: "Complaints",
+          data: allMonths.map(m => counts[m] || 0),
+          borderColor: "#2457d6",
+          backgroundColor: "rgba(36,87,214,.12)",
+          fill: true,
+          tension: 0.25,
+          pointRadius: 4
+        }]
+      },
+      options: baseOptions(false)
+    });
+  }
+
+  function renderHourChart(data) {
+    const counts = countBy(data, r => r.hour);
+    const labels = Array.from({length:24}, (_,h) => `${String(h).padStart(2,"0")}:00`);
+    const values = Array.from({length:24}, (_,h) => counts[h] || 0);
+
+    makeChart("hour", "hourChart", {
+      type: "line",
+      data: {
+        labels,
+        datasets: [{
+          label: "Complaints",
+          data: values,
+          borderColor: "#0f9f9a",
+          backgroundColor: "rgba(20,184,166,0.22)",
+          pointBackgroundColor: "#f97316",
+          pointBorderColor: "#ffffff",
+          pointBorderWidth: 1.5,
+          borderWidth: 3,
+          fill: true,
+          tension: 0.28,
+          pointRadius: 3,
+          pointHoverRadius: 6
+        }]
+      },
+      options: baseOptions(false)
+    });
+  }
+
+  function renderBandChart(data) {
+    const bands = [
+      ["00:00–05:59", 0, 5],
+      ["06:00–11:59", 6, 11],
+      ["12:00–17:59", 12, 17],
+      ["18:00–23:59", 18, 23]
+    ];
+
+    const values = bands.map(([label,start,end]) =>
+      data.filter(r => r.hour >= start && r.hour <= end).length
+    );
+
+    makeChart("band", "bandChart", {
+      type: "doughnut",
+      data: {
+        labels: bands.map(x => x[0]),
+        datasets: [{
+          data: values,
+          backgroundColor: ["#2457d6", "#16a085", "#e59b23", "#7b61d1"]
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: "bottom",
+            labels: { font: { size: 12, weight: "bold" }, color: "#344054" }
+          }
+        }
+      }
+    });
+  }
+
+  function renderSubtypeChart(data) {
+    const entries = sortedEntries(countBy(data, "subtype")).slice(0,15);
+
+    makeChart("subtype", "subtypeChart", {
+      type: "bar",
+      data: {
+        labels: entries.map(x => x[0]),
+        datasets: [{
+          label: "Complaints",
+          data: entries.map(x => x[1]),
+          backgroundColor: entries.map((_, i) => CHART_PALETTE[(i + 6) % CHART_PALETTE.length]),
+          borderWidth: 0
+        }]
+      },
+      options: (() => {
+        const options = baseOptions(true);
+        options.layout = { padding: { right: 28 } };
+        options.plugins.datalabels = {
+          display: true,
+          anchor: "end",
+          align: "right",
+          offset: 4,
+          clamp: true,
+          clip: false,
+          color: "#172033",
+          font: { size: 12, weight: "bold" },
+          formatter: value => Number(value).toLocaleString("en-IN")
+        };
+        return options;
+      })()
+    });
+  }
+
+  function renderMonthWiseTable(data) {
+    const thead = document.getElementById("monthMatrixHead");
+    const tbody = document.getElementById("monthMatrixBody");
+
+    if (!data.length) {
+      thead.innerHTML = `<tr><th>Train No.</th><th>Complaint Type</th><th class="num">Total</th></tr>`;
+      tbody.innerHTML = `<tr><td colspan="3" class="message">No data for selected filters.</td></tr>`;
+      return;
+    }
+
+    // Only the months present after applying filters are displayed.
+    const months = [...new Set(data.map(r => r.month))].sort();
+    const grouped = new Map();
+
+    data.forEach(r => {
+      if (!r.train || !r.type) return;
+
+      if (!grouped.has(r.train)) {
+        grouped.set(r.train, new Map());
+      }
+
+      const typeMap = grouped.get(r.train);
+
+      if (!typeMap.has(r.type)) {
+        typeMap.set(r.type, { train: r.train, type: r.type, months: {}, total: 0 });
+      }
+
+      const item = typeMap.get(r.type);
+      item.months[r.month] = (item.months[r.month] || 0) + 1;
+      item.total += 1;
+    });
+
+    const trainGroups = [...grouped.entries()].sort((a, b) => {
+      const an = Number(a[0]), bn = Number(b[0]);
+      if (Number.isFinite(an) && Number.isFinite(bn) && an !== bn) return an - bn;
+      return String(a[0]).localeCompare(String(b[0]), undefined, { numeric: true });
+    });
+
+    thead.innerHTML = `
+      <tr>
+        <th>Train No.</th>
+        <th>Complaint Type</th>
+        ${months.map(m => `<th class="num">${escapeHtml(monthLabel(m))}</th>`).join("")}
+        <th class="num">Total</th>
+      </tr>`;
+
+    const bodyRows = [];
+
+    trainGroups.forEach(([train, typeMap]) => {
+      const typeRows = [...typeMap.values()].sort((a, b) =>
+        a.type.localeCompare(b.type, undefined, { sensitivity: "base" })
+      );
+
+      typeRows.forEach((row, index) => {
+        bodyRows.push(`
+          <tr>
+            ${index === 0
+              ? `<td class="train-cell" rowspan="${typeRows.length}" style="vertical-align:middle">${escapeHtml(train)}</td>`
+              : ""}
+            <td class="type-cell">${escapeHtml(row.type)}</td>
+            ${months.map(m => `<td class="num">${(row.months[m] || 0).toLocaleString("en-IN")}</td>`).join("")}
+            <td class="num total-cell">${row.total.toLocaleString("en-IN")}</td>
+          </tr>`);
+      });
+    });
+
+    tbody.innerHTML = bodyRows.join("");
+  }
+
+
+  function renderRanking(data) {
+    const tbody = document.getElementById("rankingBody");
+    const trainCounts = sortedEntries(countBy(data, "train"));
+
+    if (!trainCounts.length) {
+      tbody.innerHTML = `<tr><td colspan="7" class="message">No data for selected filters.</td></tr>`;
+      document.getElementById("summaryPills").innerHTML = "";
+      return;
+    }
+
+    tbody.innerHTML = trainCounts.slice(0,100).map(([train,count], index) => {
+      const rows = data.filter(r => r.train === train);
+      const name = rows.find(r => r.trainName)?.trainName || "";
+      const dominant = sortedEntries(countBy(rows, "type"))[0]?.[0] || "–";
+      const avgTime = average(rows.map(r => r.duration));
+      const share = data.length ? (count * 100 / data.length).toFixed(1) : "0.0";
+
+      return `
+        <tr>
+          <td class="rank">${index + 1}</td>
+          <td><strong>${escapeHtml(train)}</strong></td>
+          <td>${escapeHtml(name)}</td>
+          <td class="num">${count.toLocaleString("en-IN")}</td>
+          <td class="num">${share}%</td>
+          <td>${escapeHtml(dominant)}</td>
+          <td class="num">${formatMinutes(avgTime)}</td>
+        </tr>`;
+    }).join("");
+
+    const avgTime = average(data.map(r => r.duration));
+    const rated = data.filter(r => r.rating).length;
+    const types = Object.keys(countBy(data, "type")).length;
+
+    document.getElementById("summaryPills").innerHTML = [
+      `Complaints: ${data.length.toLocaleString("en-IN")}`,
+      `Trains: ${trainCounts.length.toLocaleString("en-IN")}`,
+      `Complaint Types: ${types}`,
+      `Rated Complaints: ${rated.toLocaleString("en-IN")}`,
+      `Avg Closure: ${formatMinutes(avgTime)}`
+    ].map(t => `<span class="pill">${t}</span>`).join("");
+  }
+
+  function openTrainComplaintDetails(trainNumber) {
+    const selected = CURRENT_FILTERED_DATA.filter(row => {
+      const match = String(row.train || "").match(/\d{4,5}/);
+      return (match ? match[0] : String(row.train || "").trim()) === String(trainNumber);
+    });
+    document.getElementById("detailsTitle").textContent = `Train ${trainNumber} — Complaint Details`;
+    document.getElementById("detailsCount").textContent = `${selected.length.toLocaleString("en-IN")} complaint record(s) • Current dashboard filters applied`;
+    const tbody = document.getElementById("complaintDetailsBody");
+    tbody.innerHTML = selected.map(row => `<tr>
+      <td>${escapeHtml(row.ref || "—")}</td>
+      <td>${escapeHtml(formatDate(row.date))}</td>
+      <td>${escapeHtml((String(row.train || "").match(/\d{4,5}/) || [row.train || "—"])[0])}</td>
+      <td>${escapeHtml(row.type || "—")}</td>
+      <td>${escapeHtml(row.subtype || "—")}</td>
+      <td>${escapeHtml(row.deptCode || "—")}</td>
+      <td>${escapeHtml(row.depot || row.primaryDepot || "—")}</td>
+      <td>${escapeHtml(row.rating || "—")}</td>
+      <td>${escapeHtml(row.status || "—")}</td>
+    </tr>`).join("") || '<tr><td colspan="9">No complaint records found for this train under the selected filters.</td></tr>';
+    document.getElementById("complaintDetailsModal").classList.add("open");
+  }
+
+  function closeComplaintDetails() {
+    document.getElementById("complaintDetailsModal").classList.remove("open");
+  }
+  document.getElementById("closeDetailsBtn").addEventListener("click", closeComplaintDetails);
+  document.getElementById("complaintDetailsModal").addEventListener("click", event => {
+    if (event.target.id === "complaintDetailsModal") closeComplaintDetails();
+  });
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape") closeComplaintDetails();
+  });
+
+  function escapeHtml(text) {
+    return String(text ?? "").replace(/[&<>"']/g, c => ({
+      "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"
+    }[c]));
+  }
+
+  function resetFilters() {
+    Object.entries(MULTI_FILTERS).forEach(([id, state]) => {
+      state.selected.clear();
+      const root = document.getElementById(id);
+      const search = root.querySelector('.multi-search');
+      if (search) search.value = '';
+      renderMultiOptions(id, '');
+      updateMultiLabel(id);
+    });
+    document.getElementById("searchFilter").value = "";
+    updateDashboard();
+  }
+</script>
+
+
+
+
+</body>
+</html>
